@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quest Face Masks — prototipo</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Ccircle cx=%228%22 cy=%228%22 r=%227%22 fill=%22%23d4a017%22/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Quest Face Masks <small>prototipo v0.1 (SRS v1.2)</small></h1>
+    </header>
+    <main>
+      <section id="stage-wrap">
+        <div id="stage">
+          <video id="video" playsinline muted></video>
+          <canvas id="gl"></canvas>
+          <canvas id="overlay"></canvas>
+        </div>
+        <div id="stats">render: – fps · inferencia: – fps · – ms · detector: –</div>
+      </section>
+      <aside id="panel">
+        <fieldset>
+          <legend>Captura</legend>
+          <label>Cámara
+            <select id="camMode">
+              <option value="auto">Auto (Quest → webcam)</option>
+              <option value="quest-right">Quest passthrough derecha</option>
+              <option value="quest-left">Quest passthrough izquierda</option>
+              <option value="webcam">Webcam</option>
+            </select>
+          </label>
+          <label><input type="checkbox" id="useWorker" checked /> Inferencia en Web Worker</label>
+          <label><input type="checkbox" id="useGPU" checked /> Delegado GPU (fallback CPU)</label>
+          <button id="btnStart">Iniciar cámara + detector</button>
+          <button id="btnStop" disabled>Detener</button>
+        </fieldset>
+        <fieldset>
+          <legend>Visualización</legend>
+          <label><input type="checkbox" id="showVideo" checked /> Mostrar vídeo</label>
+          <label><input type="checkbox" id="showOverlay" /> Overlay 2D de depuración</label>
+          <label><input type="checkbox" id="showMask" checked /> Máscara 3D</label>
+          <label>GLB (URL)
+            <input type="url" id="glbUrl" placeholder="https://…/mascara.glb" />
+          </label>
+          <button id="btnGlb">Cargar GLB</button>
+          <button id="btnProcedural">Máscara procedural</button>
+          <button id="btnAR" disabled>Entrar en AR</button>
+        </fieldset>
+        <fieldset id="calib">
+          <legend>Calibración (localStorage)</legend>
+          <label><input type="checkbox" id="mirror" /> Espejo (webcam frontal)</label>
+          <div id="sliders"></div>
+          <button id="btnResetCalib">Restablecer</button>
+        </fieldset>
+        <pre id="log"></pre>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
