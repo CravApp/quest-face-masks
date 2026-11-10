@@ -1,12 +1,15 @@
 import * as THREE from 'three';
-import { getBestCamera, stopStream, type CameraResult } from './camera';
+import { CameraError, describeDevices, getBestCamera, stopStream, type CameraResult } from './camera';
 import { DEFAULT_CALIBRATION, SLIDERS, loadCalibration, saveCalibration, type Calibration } from './calibration';
+import { debugReport, installRemoteDebug } from './debug/remote';
 import { FpsCounter } from './fps';
 import { drawOverlay } from './overlay';
 import { createProceduralMask, loadGlbMask } from './scene/mask';
 import { PoseSmoother, cameraOffsetMatrix, faceMatrixToCameraSpace } from './scene/pose';
 import { createFaceDetector, type FaceDetector } from './vision/detector';
 import type { ResultMsg } from './vision/protocol';
+
+installRemoteDebug();
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const video = $<HTMLVideoElement>('video');
@@ -15,6 +18,20 @@ const overlay = $<HTMLCanvasElement>('overlay');
 const stage = $<HTMLDivElement>('stage');
 const statsEl = $<HTMLDivElement>('stats');
 const logEl = $<HTMLPreElement>('log');
+const bannerEl = $<HTMLDivElement>('banner');
+
+function showBanner(message: string, level: 'error' | 'warn'): void {
+  bannerEl.hidden = false;
+  bannerEl.classList.toggle('error', level === 'error');
+  bannerEl.textContent = message;
+}
+
+function hideBanner(): void {
+  bannerEl.hidden = true;
+  bannerEl.textContent = '';
+}
+bannerEl.title = 'Pulsa para ocultar';
+bannerEl.onclick = () => hideBanner();
 
 function log(msg: string): void {
   const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
@@ -130,6 +147,7 @@ async function inferenceLoop(): Promise<void> {
 // ---------- Render ----------
 let lastFrame = performance.now();
 let lastHud = 0;
+let lastRemoteFps = 0;
 renderer.setAnimationLoop((now) => {
   const dt = Math.min(100, now - lastFrame);
   lastFrame = now;
@@ -148,6 +166,26 @@ renderer.setAnimationLoop((now) => {
     hud.quaternion.setFromRotationMatrix(xrCam.matrixWorld);
   } else {
     hud.visible = false;
+  }
+
+  if (now - lastRemoteFps > 2000) {
+    lastRemoteFps = now;
+    const det = detector ? `${detector.kind}/${detector.delegate}` : null;
+    debugReport({
+      kind: 'fps',
+      level: 'info',
+      message: `render ${renderFps.fps} fps · inferencia ${inferFps.fps} fps · ${lastInferMs.toFixed(1)} ms`,
+      data: {
+        render: renderFps.fps,
+        infer: inferFps.fps,
+        inferMs: lastInferMs,
+        presenting: renderer.xr.isPresenting,
+        detector: det,
+        video: camera
+          ? { width: camera.settings.width, height: camera.settings.height, label: camera.label, source: camera.source }
+          : null,
+      },
+    });
   }
 
   if (now - lastHud > 300) {
@@ -173,12 +211,27 @@ renderer.setAnimationLoop((now) => {
 // ---------- Arranque / parada ----------
 async function start(): Promise<void> {
   $<HTMLButtonElement>('btnStart').disabled = true;
+  hideBanner();
   try {
     camera = await getBestCamera($<HTMLSelectElement>('camMode').value as never, log);
+    if (camera.notice) showBanner(camera.notice, 'warn');
+    log(`Cámaras de vídeo: ${describeDevices(camera.devices)}`);
     log(`Cámara: ${camera.label} (${camera.source}) ${camera.settings.width}x${camera.settings.height}@${camera.settings.frameRate}`);
     video.srcObject = camera.stream;
     await video.play();
     if (video.videoWidth && video.videoHeight) stage.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+    debugReport({
+      kind: 'camera',
+      level: camera.notice ? 'warn' : 'info',
+      message: camera.notice ?? `Cámara: ${camera.label} (${camera.source})`,
+      data: {
+        source: camera.source,
+        label: camera.label,
+        settings: camera.settings,
+        devices: camera.devices,
+        video: { width: video.videoWidth, height: video.videoHeight },
+      },
+    });
     // Espejo por defecto solo para webcam frontal.
     if (camera.source === 'quest-passthrough' && calib.mirror) { calib.mirror = false; saveCalibration(calib); syncCalibUI(); }
     applyMirror();
@@ -195,7 +248,18 @@ async function start(): Promise<void> {
     void inferenceLoop();
     $<HTMLButtonElement>('btnStop').disabled = false;
   } catch (e) {
-    log(`Error al iniciar: ${(e as Error).message}`);
+    const message = e instanceof Error ? e.message : String(e);
+    log(`Error al iniciar: ${message}`);
+    showBanner(message, 'error');
+    debugReport({
+      kind: 'camera',
+      level: 'error',
+      message,
+      data: {
+        code: e instanceof CameraError ? e.code : 'failed',
+        devices: e instanceof CameraError ? e.devices : [],
+      },
+    });
     stop();
   }
 }
@@ -219,6 +283,12 @@ async function setupAR(): Promise<void> {
   const supported = !!navigator.xr && (await navigator.xr.isSessionSupported('immersive-ar').catch(() => false));
   btn.disabled = !supported;
   btn.title = supported ? '' : 'immersive-ar no soportado en este navegador';
+  debugReport({
+    kind: 'webxr',
+    level: supported ? 'info' : 'warn',
+    message: supported ? 'immersive-ar disponible' : 'immersive-ar no soportado',
+    data: { available: !!navigator.xr, immersiveAr: supported },
+  });
   if (!supported) log('immersive-ar no soportado aquí (normal en escritorio).');
   btn.onclick = async () => {
     if (renderer.xr.isPresenting) { await renderer.xr.getSession()?.end(); return; }
@@ -229,14 +299,18 @@ async function setupAR(): Promise<void> {
       smoother.reset();
       btn.textContent = 'Salir de AR';
       log('Sesión immersive-ar iniciada');
+      debugReport({ kind: 'webxr', level: 'info', message: 'sesión immersive-ar iniciada' });
       session.addEventListener('end', () => {
         btn.textContent = 'Entrar en AR';
         smoother.reset();
         resize();
         log('Sesión AR terminada');
+        debugReport({ kind: 'webxr', level: 'info', message: 'sesión immersive-ar terminada' });
       });
     } catch (e) {
-      log(`No se pudo iniciar AR: ${(e as Error).message}`);
+      const message = `No se pudo iniciar AR: ${(e as Error).message}`;
+      log(message);
+      debugReport({ kind: 'webxr', level: 'error', message, stack: e instanceof Error ? e.stack : undefined });
     }
   };
 }
@@ -306,6 +380,20 @@ $<HTMLButtonElement>('btnProcedural').onclick = () => setMask(createProceduralMa
 const glbParam = new URLSearchParams(location.search).get('glb');
 if (glbParam) { $<HTMLInputElement>('glbUrl').value = glbParam; void loadGlb(glbParam); }
 
-if (!window.isSecureContext) log('⚠️ No es contexto seguro: usa https o http://localhost (adb reverse).');
+if (!window.isSecureContext) {
+  const message = 'No es un contexto seguro: getUserMedia y WebXR no funcionan por http://IP. Usa npm run dev:lan y abre la URL https de la LAN.';
+  log(message);
+  showBanner(message, 'error');
+}
+debugReport({
+  kind: 'startup',
+  level: 'info',
+  message: 'arranque',
+  data: {
+    userAgent: navigator.userAgent,
+    secureContext: window.isSecureContext,
+    mediaDevices: !!navigator.mediaDevices?.getUserMedia,
+  },
+});
 void setupAR();
 resize();

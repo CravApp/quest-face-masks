@@ -40,17 +40,81 @@ Otros comandos:
 
 El modelo `face_landmarker.task` (float16) va incluido en `public/models/`. Si falta, se descarga en `predev`/`prebuild`, y si tampoco se puede, la app usa la URL remota de Google.
 
-## Pruebas en Meta Quest 3 / 3S
+## Pruebas en Meta Quest 3 / 3S por Wi-Fi (sin cable)
 
-1. Activa el modo desarrollador en el visor y conéctalo por USB (`adb devices` debe listarlo).
-2. En el PC: `npm run dev`.
-3. Redirige el puerto: `adb reverse tcp:5173 tcp:5173`.
-4. En Quest Browser abre **`http://localhost:5173`**. `localhost` es contexto seguro, así que no hace falta HTTPS. Si entras por la IP de la red local, necesitas HTTPS con un certificado válido.
-5. Concede el permiso de cámara. Si solo aparece la cámara del avatar o falla la cámara trasera, revisa **Ajustes → Privacidad y seguridad → Permisos de apps → "Headset cameras"** para Browser.
-6. Elige "Quest passthrough derecha" (o Auto), pulsa **Iniciar cámara + detector** y después **Entrar en AR**.
-7. Calibra con los sliders (FOV, offsets, profundidad) mirando a otra persona. Los valores se guardan en el visor.
+`getUserMedia` y WebXR necesitan un contexto seguro. `http://IP` no lo es. `npm run dev:lan` levanta el mismo Vite en HTTPS con un certificado autofirmado (la IP de la LAN va en el certificado) e imprime las URL. `npm run dev` no cambia: sigue siendo `http://localhost:5173` para el escritorio.
+
+El PC y el visor tienen que estar en la misma red. En Windows hay que dejar entrar el puerto **5173** en el Firewall (el aviso de la primera vez, o una regla de entrada TCP 5173). Sin eso el visor no llega al PC.
+
+1. En el PC (PowerShell o cmd, sin instalaciones de administrador):
+
+   ```bash
+   npm install
+   npm run dev:lan
+   ```
+
+2. Anota la línea `https://192.168.x.x:5173/` (o la IP que imprima; por ejemplo `https://10.50.41.87:5173/`).
+3. En Quest Browser abre esa URL. El certificado es autofirmado: en el aviso de conexión no privada elige la opción avanzada y continúa al sitio. La redacción exacta depende del idioma del visor.
+4. Concede el permiso de cámara. Si el banner rojo dice que se denegó, o que no hay cámaras «facing back», abre **Ajustes → Privacidad y seguridad → Permisos de apps → Browser → «Headset cameras»**. La cámara «facing front» es la del avatar y no ve la sala. El mismo texto queda en el panel de la página y en el log del PC.
+5. Elige «Quest passthrough derecha» (o Auto), pulsa **Iniciar cámara + detector** y después **Entrar en AR**.
+6. Calibra con los sliders mirando a otra persona. Los valores se guardan en el visor.
+
+### Ver la consola del visor desde el PC
+
+Con `dev:lan` (y también con `npm run dev`) la página envía al propio servidor, por el mismo origen:
+
+- `console.log` / `info` / `warn` / `error` / `debug`
+- errores de `window` con archivo, línea, columna y stack
+- promesas rechazadas sin `catch`
+- `fetch` que falla
+- un registro de arranque (userAgent, WebXR) y, tras el permiso, la lista de cámaras, la elegida y la resolución del vídeo
+- inicio, fin y errores de la sesión `immersive-ar`
+- FPS de render e inferencia cada 2 s
+
+El servidor los añade a `debug-logs/device.jsonl` (no se versiona) y los imprime en la terminal con el prefijo `[quest-debug]`. No se envía ningún fotograma.
+
+Para ejecutar JavaScript en la página que esté abierta en el visor, copia el token que imprime el servidor (también está en `debug-logs/token`) y, desde el PC:
+
+```bash
+curl.exe -k -X POST https://localhost:5173/__debug/eval -H "content-type: application/json" -H "x-debug-token: TOKEN" -d "{\"code\":\"navigator.userAgent\"}"
+```
+
+El resultado vuelve en la respuesta y queda en el jsonl. `https://localhost` evita el firewall; el visor tiene que tener la página abierta. Si hay varias, se usa la que hizo poll más reciente. Puedes fijar una con `"clientId"` (sale en el log al conectar). El estado de los clientes está en `https://localhost:5173/__debug/status`.
+
+Ese canal solo existe en el servidor de desarrollo. Un build de producción no lo incluye salvo que exportes `VITE_REMOTE_DEBUG=1` al construir (y sirvas tú los endpoints).
+
+### DevTools remoto con chii (opcional)
+
+En otra terminal, sin instalación global:
+
+```bash
+npm run chii
+```
+
+Eso ejecuta `chii` en el puerto 8080 con la base `/__chii`. Vite hace de proxy de ese proceso bajo el mismo origen (`/__chii/target.js` y el WebSocket), así el visor no mezcla http con https. Al recargar la página, si chii responde, se inyecta el script. Abre `http://localhost:8080/__chii/` en el PC y elige el visor. Para forzar la inyección aunque el sondeo falle: `CHII=1` antes de `npm run dev:lan` (en PowerShell, `$env:CHII='1'`).
+
+### Por USB, si adb sí conecta
+
+1. Modo desarrollador y `adb devices`.
+2. `npm run dev` (HTTP, sin certificado).
+3. `adb reverse tcp:5173 tcp:5173`.
+4. En el visor, `http://localhost:5173`. `localhost` ya es contexto seguro.
 
 Requisitos de dispositivo: solo Quest 3 o 3S, con el passthrough activado. La API nativa existe desde Horizon OS v74; para el navegador se cita v77 o superior en fuentes de terceros (**por verificar en visor**).
+
+## GitHub Pages
+
+Cada push a `main`, y el disparo manual del workflow **Publicar en GitHub Pages**, construye con la base que reporta Pages (`/quest-face-masks/`) y publica en:
+
+https://cravapp.github.io/quest-face-masks/
+
+Esa base es la que usa el cliente para pedir el WASM de MediaPipe, `face_landmarker.task` y el worker (`import.meta.env.BASE_URL`). Un `npm run build` local, sin `VITE_BASE`, sigue generando `dist/` en la raíz `/`.
+
+Pages no tiene servidor de logs. La página no envía nada salvo que la abras con `?log=` apuntando a un logger HTTPS (el del ejemplo acepta `POST /log` con un JSON y un WebSocket en `/rlog-ws`, con CORS `*`):
+
+https://cravapp.github.io/quest-face-masks/?log=https://10.50.41.87:8443
+
+Sustituye la IP por la del PC. Cada evento es un JSON (`t`, `level`, `kind`, `message`, `href`, `clientId` y, si aplica, `file` / `line` / `col` / `stack` / `data`). Si `/rlog-ws` está abierto se manda por ahí; si no, con `POST /log`. Antes, abre `https://10.50.41.87:8443` en el visor y acepta su certificado, o el navegador bloqueará el envío. Sin el parámetro `log` no hay ninguna petición de diagnóstico. Tampoco se envían fotogramas ni landmarks.
 
 ## Limitaciones conocidas
 
@@ -70,7 +134,9 @@ Requisitos de dispositivo: solo Quest 3 o 3S, con el passthrough activado. La AP
 
 ```
 src/camera.ts            captura Quest/webcam
+src/debug/remote.ts      log remoto (dev y ?log=)
 src/vision/              protocolo, worker, FaceLandmarker, detector con fallback
+vite/                    HTTPS de LAN, logger del dev server y proxy de chii
 src/scene/pose.ts        matriz facial → pose, corrección de FOV, suavizado
 src/scene/mask.ts        máscara procedural y cargador GLB
 src/calibration.ts       parámetros persistidos
