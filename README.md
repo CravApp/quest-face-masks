@@ -1,27 +1,28 @@
-# Quest Face Masks — prototipo v0.1
+# Quest Face Masks — v0.2
 
-Prototipo web (Vite + TypeScript + three.js + `@mediapipe/tasks-vision`) que detecta un rostro con **MediaPipe Face Landmarker** y le coloca una **máscara 3D**. Usa la cámara passthrough de **Meta Quest 3 / 3S** desde Quest Browser y, en escritorio, la webcam. Requisitos completos: [`docs/SRS-v1.2.md`](docs/SRS-v1.2.md).
+Prototipo web (Vite + TypeScript + three.js + `@mediapipe/tasks-vision`) que detecta un rostro con **MediaPipe Face Landmarker** y le coloca una **máscara 3D**. En Quest Browser usa la cámara passthrough **izquierda** (`camera 1, facing back`) a 1280×960@30. En escritorio usa la webcam. Lo que cambió tras el spike de cámaras está en [`docs/mejoras-v1.3.md`](docs/mejoras-v1.3.md). Requisitos de partida: [`docs/SRS-v1.2.md`](docs/SRS-v1.2.md).
 
 ## Funciones
 
-- `getQuestPassthroughStream()` (`src/camera.ts`):
-  - pide el permiso primero, filtra las cámaras `facing back` y elige izquierda o derecha;
-  - pide 1280×960 a 30 fps como `ideal` y, si hay `OverconstrainedError`, reintenta con `facingMode`;
-  - si no hay passthrough, usa la webcam.
-- **FaceLandmarker en Web Worker** (`src/vision/`):
-  - modo `VIDEO` con `outputFacialTransformationMatrixes`;
-  - delegado GPU con fallback a CPU;
-  - fotogramas enviados como `ImageBitmap` transferidos;
-  - si el worker falla, la inferencia pasa al hilo principal.
+- `getBestCamera()` (`src/camera.ts`):
+  - en auto elige la passthrough **izquierda** (`camera 1, facing back`); si no hay, cualquier `facing back`; si tampoco, la webcam;
+  - pide 1280×960 o 640×480 con `frameRate` ideal 30 y máximo 30 (en el Quest, 60 exacto da `OverconstrainedError` y 60 ideal entrega 30);
+  - el estéreo experimental abre la otra passthrough y solo triangula si `|Δ captureTime| < 5 ms`.
+- **FaceLandmarker desacoplado del render XR** (`src/vision/`):
+  - la cadencia la marca `requestVideoFrameCallback`, con tope de Hz;
+  - si existe `MediaStreamTrackProcessor`, el worker lee `VideoFrame` y no toca el `requestAnimationFrame` de la sesión;
+  - si no, manda `ImageBitmap` al worker; si el worker falla, el hilo principal infiere en un `setTimeout`, nunca dentro del frame de XR;
+  - un fotograma en vuelo como máximo: el último gana y el resto se descarta.
 - **Escena three.js**:
   - máscara procedural (sin GLB externo) o un GLB cargado por URL (campo en la UI o `?glb=https://…`);
-  - pose obtenida de la matriz facial y suavizada (lerp/slerp exponencial).
+  - en escritorio la pose sale de la matriz facial de MediaPipe;
+  - en `immersive-ar` la posición sale de los intrínsecos de fábrica (recorte centrado 1728×1296) y de la profundidad monocular por la distancia entre iris, puesta en el mundo con la pose del visor más cercana a `captureTime`;
+  - suavizado con filtro **One Euro** (el slider de ms cambia el corte mínimo).
 - **Overlay 2D de depuración**: los 478 landmarks y su caja sobre el vídeo.
-- **Entrar en AR** (`immersive-ar`):
-  - la máscara se coloca en el mundo como pose de la cabeza en el instante de captura × offset de cámara calibrado × matriz facial;
-  - un HUD 3D muestra los FPS dentro del visor.
-- **Calibración** guardada en `localStorage`: FOV, offsets XYZ, pitch/yaw, escala de profundidad, escala de máscara, suavizado y espejo.
-- **Contadores de FPS** de render y de inferencia, más los ms por inferencia.
+- **Entrar en AR** (`immersive-ar`, con `local-floor` y `hand-tracking` opcionales):
+  - el HUD 3D muestra fps de XR, fps de cámara, Hz y ms de inferencia (media y p95), latencia `now − captureTime` y descartes.
+- **Calibración** guardada en `localStorage`: FOV (escritorio), offsets XYZ, pitch/yaw, escala de profundidad (mono), escala de máscara, suavizado y espejo.
+- **Parámetros de URL**: `res=640x480`, `infer=20`, `gpu=0`, `worker=0`, `stereo=1`, `overlay=1`, `cam=left|right|webcam`, y `?log=` / `?glb=` como antes.
 
 ## Instalación y uso en escritorio
 
@@ -56,7 +57,7 @@ El PC y el visor tienen que estar en la misma red. En Windows hay que dejar entr
 2. Anota la línea `https://192.168.x.x:5173/` (o la IP que imprima; por ejemplo `https://10.50.41.87:5173/`).
 3. En Quest Browser abre esa URL. El certificado es autofirmado: en el aviso de conexión no privada elige la opción avanzada y continúa al sitio. La redacción exacta depende del idioma del visor.
 4. Concede el permiso de cámara. Si el banner rojo dice que se denegó, o que no hay cámaras «facing back», abre **Ajustes → Privacidad y seguridad → Permisos de apps → Browser → «Headset cameras»**. La cámara «facing front» es la del avatar y no ve la sala. El mismo texto queda en el panel de la página y en el log del PC.
-5. Elige «Quest passthrough derecha» (o Auto), pulsa **Iniciar cámara + detector** y después **Entrar en AR**.
+5. Deja Auto (passthrough izquierda) o elige la cámara, pulsa **Iniciar cámara + detector** y después **Entrar en AR**. El tope de inferencia por defecto es 20 Hz para no bajar el render. Cómo leer el HUD: [`docs/mejoras-v1.3.md`](docs/mejoras-v1.3.md).
 6. Calibra con los sliders mirando a otra persona. Los valores se guardan en el visor.
 
 ### Ver la consola del visor desde el PC
@@ -118,14 +119,11 @@ Sustituye la IP por la del PC. Cada evento es un JSON (`t`, `level`, `kind`, `me
 
 ## Limitaciones conocidas
 
-- **Verificado solo en escritorio** (Chrome headless, cámara simulada, render por software): build, tipos, worker GPU/CPU, fallback al hilo principal y alineación de la máscara con webcam. **Nada probado aún en un Quest.**
-- Quest Browser **no implementa WebXR Raw Camera Access** (`camera-access`). La imagen llega por `getUserMedia` y no está alineada con las vistas XR. Por eso la colocación en AR depende de la calibración manual (FOV y offset de la cámara respecto a la cabeza).
-- No se usa WebXR Hit Test: no sirve para fijar la profundidad de una cara. La profundidad sale de la matriz de MediaPipe, que asume un FOV de unos 63°, más el slider de escala de profundidad.
-- **Por verificar en visor**:
-  - si los fotogramas de `getUserMedia` siguen llegando durante `immersive-ar` (la captura usa temporizador y no `requestAnimationFrame` para no depender de ello);
-  - qué cámara es la izquierda y cuál la derecha según la etiqueta (`camera 1` / `camera 2`);
-  - si se pueden abrir ambas cámaras a la vez (el prototipo usa una);
-  - la tasa real de inferencia: el objetivo es 30 fps o más, y hay que medirlo con el contador.
+- El spike en Quest 3 (Browser 157, Horizon OS v209) ya midió cámaras, sincronía e inferencia. Esta versión **aún no se ha vuelto a medir en el visor** después de desacoplar el render. El objetivo a comprobar es XR ≥ 60 fps con inferencia ≥ 15 Hz. Detalle y tabla de resultados: [`docs/mejoras-v1.3.md`](docs/mejoras-v1.3.md).
+- Quest Browser **no implementa WebXR Raw Camera Access** (`camera-access`). Los intrínsecos no vienen en `getSettings`; se usan los de fábrica del sensor 1728×1728, con el recorte 4:3 supuesto.
+- El estéreo del navegador no está bien sincronizado (mediana ~14 ms). Por defecto la profundidad es monocular. El estéreo solo triangula si un par cae por debajo de 5 ms.
+- No se usa WebXR Hit Test: no sirve para fijar la profundidad de una cara.
+- En escritorio (webcam) la máscara sigue la matriz facial de MediaPipe, no los intrínsecos del Quest.
 - Solo un sitio puede usar la cámara del visor a la vez, y al minimizar la ventana dejan de llegar fotogramas (Meta Help).
 - El GLB debe estar en metros, centrado en la cabeza y mirando a +Z. Se convierte a las unidades del modelo canónico de MediaPipe (cm).
 - La máscara procedural se ajustó al modelo canónico de MediaPipe (`canonical_face_model.obj`).
@@ -133,14 +131,18 @@ Sustituye la IP por la del PC. Cada evento es un JSON (`t`, `level`, `kind`, `me
 ## Estructura
 
 ```
-src/camera.ts            captura Quest/webcam
+src/camera.ts            captura Quest (izquierda) / webcam / estéreo opcional
 src/debug/remote.ts      log remoto (dev y ?log=)
-src/vision/              protocolo, worker, FaceLandmarker, detector con fallback
+src/vision/              worker, stream de VideoFrame, bomba por rVFC
+src/scene/align-math.ts  intrínsecos escalados, profundidad mono y triangulación
+src/scene/place.ts       pose de la máscara en el espacio de la cabeza
+src/scene/one-euro.ts    suavizado One Euro
+src/scene/pose-history.ts  historial de la pose del visor
+src/scene/pose.ts        matriz facial → espacio de cámara (escritorio)
+src/perf.ts              media y p95 del último segundo
 vite/                    HTTPS de LAN, logger del dev server y proxy de chii
-src/scene/pose.ts        matriz facial → pose, corrección de FOV, suavizado
 src/scene/mask.ts        máscara procedural y cargador GLB
-src/calibration.ts       parámetros persistidos
-src/overlay.ts           overlay 2D
-src/main.ts              UI, render loop, WebXR
-docs/SRS-v1.2.md|pdf     especificación
+src/main.ts              UI, render XR, HUD
+docs/SRS-v1.2.md         especificación de partida
+docs/mejoras-v1.3.md     decisiones tras el spike
 ```

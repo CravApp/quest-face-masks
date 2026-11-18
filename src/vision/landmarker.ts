@@ -48,6 +48,9 @@ export function packResult(
   inferMs: number,
   width: number,
   height: number,
+  captureTime: number | null = null,
+  eye: 'left' | 'right' = 'left',
+  droppedBefore = 0,
 ): ResultMsg {
   const face = r.faceLandmarks?.[0];
   let landmarks: Float32Array | null = null;
@@ -60,5 +63,5 @@ export function packResult(
     });
   }
   const m = r.facialTransformationMatrixes?.[0];
-  return { type: 'result', timestamp, inferMs, landmarks, matrix: m ? Array.from(m.data) : null, width, height };
+  return { type: 'result', timestamp, captureTime, eye, inferMs, landmarks, matrix: m ? Array.from(m.data) : null, width, height, droppedBefore };
 }
