@@ -19,8 +19,23 @@ export interface CameraResult {
   label: string;
   settings: MediaTrackSettings;
   devices: VideoInputSummary[];
-  /** Aviso cuando no hubo passthrough y se cayó a la webcam. */
+  /** Ojo elegido. En Quest, auto es la passthrough izquierda. */
+  eye: QuestEye | 'webcam';
+  /** La otra passthrough, solo si se pidió estéreo y abrió. */
+  rightStream: MediaStream | null;
+  rightLabel: string | null;
+  rightSettings: MediaTrackSettings | null;
+  /** Ojo de rightStream. Si el principal es la derecha, este es el izquierdo. */
+  otherEye: QuestEye | null;
+  /** Aviso cuando no hubo passthrough y se cayó a la webcam, o el estéreo no abrió. */
   notice?: string;
+}
+
+export interface CaptureRequest {
+  mode: 'auto' | 'quest-left' | 'quest-right' | 'webcam';
+  width: number;
+  height: number;
+  stereo: boolean;
 }
 
 export class CameraError extends Error {
@@ -95,10 +110,32 @@ async function failure(error: unknown, fallback: string): Promise<CameraError> {
   return new CameraError('failed', `${fallback} (${errorName(error)}: ${(error as Error).message}). Cámaras: ${describeDevices(devices)}.`, devices);
 }
 
-export async function getQuestPassthroughStream(eye: QuestEye = 'right'): Promise<MediaStream> {
+/** El spike (Quest Browser 157) rechaza frameRate exact 60 y, con ideal 60, entrega 30. Se pide ideal 30 con tope 30. */
+async function openDevice(deviceId: string, width: number, height: number): Promise<MediaStream> {
   const md = assertMediaDevices();
+  const attempts: MediaTrackConstraints[] = [
+    { deviceId: { exact: deviceId }, width: { ideal: width }, height: { ideal: height }, frameRate: { ideal: 30, max: 30 } },
+    { deviceId: { exact: deviceId }, width: { ideal: width }, height: { ideal: height } },
+    { deviceId: { exact: deviceId } },
+  ];
+  let last: unknown;
+  for (const video of attempts) {
+    try {
+      return await md.getUserMedia({ video, audio: false });
+    } catch (error) {
+      last = error;
+      if (errorName(error) !== 'OverconstrainedError') break;
+    }
+  }
+  throw last instanceof Error ? last : new Error(String(last));
+}
 
-  // 1) Pedir permiso primero: sin él, label/deviceId de enumerateDevices llegan vacíos.
+function sortedBack(devices: VideoInputSummary[]): VideoInputSummary[] {
+  return devices.filter((device) => device.facingBack).sort((a, b) => cameraNumber(a.label) - cameraNumber(b.label));
+}
+
+async function grantAndList(): Promise<VideoInputSummary[]> {
+  const md = assertMediaDevices();
   let probe: MediaStream | null = null;
   try {
     probe = await md.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
@@ -107,40 +144,33 @@ export async function getQuestPassthroughStream(eye: QuestEye = 'right'): Promis
   } finally {
     probe?.getTracks().forEach((track) => track.stop());
   }
+  return videoInputs();
+}
 
-  // 2) Filtrar por "facing back" (nunca por índice ni por un dígito suelto en la etiqueta).
-  const devices = await videoInputs();
-  const back = devices.filter((device) => device.facingBack);
+export async function getQuestPassthroughStream(eye: QuestEye = 'left', width = 1280, height = 960): Promise<MediaStream> {
+  const devices = await grantAndList();
+  const back = sortedBack(devices);
   if (back.length === 0) throw new CameraError('no-facing-back', noBackMessage(devices), devices);
-  // camera 1 = izquierda, camera 2 = derecha (según Reactylon; por verificar en visor).
-  back.sort((a, b) => cameraNumber(a.label) - cameraNumber(b.label));
+  // Spike en Quest Browser 157: «camera 1, facing back» = izquierda, «camera 2, facing back» = derecha.
   const chosen = eye === 'left' ? back[0] : back[back.length - 1];
   if (!chosen?.deviceId) throw new CameraError('failed', 'La cámara passthrough no tiene deviceId.', devices);
-
-  // 3) Pedir 4:3 nativo (1280x960) con "ideal" para evitar OverconstrainedError.
-  const video: MediaTrackConstraints = {
-    deviceId: { exact: chosen.deviceId },
-    width: { ideal: 1280 },
-    height: { ideal: 960 },
-    frameRate: { ideal: 30 },
-  };
   try {
-    return await md.getUserMedia({ video, audio: false });
+    return await openDevice(chosen.deviceId, width, height);
   } catch (error) {
     if (errorName(error) !== 'OverconstrainedError') throw await failure(error, `No se pudo abrir «${chosen.label}»`);
     try {
-      return await md.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      return await assertMediaDevices().getUserMedia({ video: { facingMode: 'environment' }, audio: false });
     } catch (retry) {
-      throw await failure(retry, `«${chosen.label}» rechazó 1280×960 y el reintento con facingMode también falló`);
+      throw await failure(retry, `«${chosen.label}» rechazó ${width}×${height} y el reintento con facingMode también falló`);
     }
   }
 }
 
-export async function getWebcamStream(): Promise<MediaStream> {
+export async function getWebcamStream(width = 1280, height = 720): Promise<MediaStream> {
   const md = assertMediaDevices();
   try {
     return await md.getUserMedia({
-      video: { facingMode: { ideal: 'user' }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+      video: { facingMode: { ideal: 'user' }, width: { ideal: width }, height: { ideal: height }, frameRate: { ideal: 30 } },
       audio: false,
     });
   } catch (error) {
@@ -148,36 +178,70 @@ export async function getWebcamStream(): Promise<MediaStream> {
   }
 }
 
-async function describe(stream: MediaStream, source: CameraSource): Promise<CameraResult> {
+function trackSettings(stream: MediaStream): { label: string; settings: MediaTrackSettings } {
   const track = stream.getVideoTracks()[0];
+  return { label: track?.label ?? '(sin etiqueta)', settings: track?.getSettings() ?? {} };
+}
+
+async function withMeta(stream: MediaStream, source: CameraSource, eye: CameraResult['eye']): Promise<CameraResult> {
+  const main = trackSettings(stream);
   return {
     stream,
     source,
-    label: track?.label ?? '(sin etiqueta)',
-    settings: track?.getSettings() ?? {},
+    label: main.label,
+    settings: main.settings,
     devices: await videoInputs(),
+    eye,
+    rightStream: null,
+    rightLabel: null,
+    rightSettings: null,
+    otherEye: null,
   };
 }
 
-/** Intenta el passthrough de Quest; si no existe (escritorio), usa la webcam. Un permiso denegado no se disimula. */
-export async function getBestCamera(
-  mode: 'auto' | 'quest-left' | 'quest-right' | 'webcam',
-  log: (message: string) => void,
-): Promise<CameraResult> {
-  if (mode !== 'webcam') {
-    try {
-      const eye: QuestEye = mode === 'quest-left' ? 'left' : 'right';
-      return await describe(await getQuestPassthroughStream(eye), 'quest-passthrough');
-    } catch (error) {
-      const cameraError = error instanceof CameraError ? error : await failure(error, 'Passthrough no disponible');
-      if (mode !== 'auto' || cameraError.code === 'denied' || cameraError.code === 'insecure') throw cameraError;
-      log(`${cameraError.message} Usando webcam.`);
-      const webcam = await describe(await getWebcamStream(), 'webcam');
-      webcam.notice = cameraError.message;
-      return webcam;
-    }
+async function attachRight(result: CameraResult, width: number, height: number, log: (message: string) => void): Promise<void> {
+  const back = sortedBack(result.devices);
+  const other = back.filter((device) => device.label !== result.label);
+  const right = other[other.length - 1];
+  if (!right?.deviceId) {
+    result.notice = result.notice ? `${result.notice} Estéreo no disponible: no hay segunda cámara facing back.` : 'Estéreo no disponible: no hay segunda cámara facing back.';
+    return;
   }
-  return describe(await getWebcamStream(), 'webcam');
+  try {
+    const stream = await openDevice(right.deviceId, width, height);
+    const meta = trackSettings(stream);
+    result.rightStream = stream;
+    result.rightLabel = meta.label;
+    result.rightSettings = meta.settings;
+    result.otherEye = result.eye === 'right' ? 'left' : 'right';
+    log(`Estéreo: también «${meta.label}» ${meta.settings.width}×${meta.settings.height}@${meta.settings.frameRate ?? '–'}`);
+  } catch (error) {
+    const info = error instanceof Error ? error.message : String(error);
+    result.notice = `La cámara derecha no abrió (${info}). Se sigue en mono.`;
+    log(result.notice);
+  }
+}
+
+/**
+ * Auto en Quest: passthrough izquierda, luego cualquier facing back, y si no hay
+ * (escritorio) la webcam. Un permiso denegado no se disimula.
+ */
+export async function getBestCamera(request: CaptureRequest, log: (message: string) => void): Promise<CameraResult> {
+  const { mode, width, height, stereo } = request;
+  if (mode === 'webcam') return withMeta(await getWebcamStream(width, height), 'webcam', 'webcam');
+  try {
+    const eye: QuestEye = mode === 'quest-right' ? 'right' : 'left';
+    const result = await withMeta(await getQuestPassthroughStream(eye, width, height), 'quest-passthrough', eye);
+    if (stereo) await attachRight(result, width, height, log);
+    return result;
+  } catch (error) {
+    const cameraError = error instanceof CameraError ? error : await failure(error, 'Passthrough no disponible');
+    if (mode !== 'auto' || cameraError.code === 'denied' || cameraError.code === 'insecure') throw cameraError;
+    log(`${cameraError.message} Usando webcam.`);
+    const webcam = await withMeta(await getWebcamStream(width, height), 'webcam', 'webcam');
+    webcam.notice = cameraError.message;
+    return webcam;
+  }
 }
 
 export function stopStream(stream: MediaStream | null | undefined): void {

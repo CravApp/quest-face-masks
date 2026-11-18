@@ -17,7 +17,7 @@ main { display: flex; gap: 12px; padding: 12px; flex-wrap: wrap; }
 fieldset { border: 1px solid #2c2f3b; border-radius: 8px; display: flex; flex-direction: column; gap: 6px; }
 legend { color: #b8bac4; }
 label { font-size: 13px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-input[type=range] { flex: 1; } input[type=url], select { flex: 1; min-width: 140px; }
+input[type=range] { flex: 1; } input[type=url], input[type=number], select { flex: 1; min-width: 140px; }
 button { padding: 8px; border-radius: 6px; border: 1px solid #3a3e4e; background: #1f2230; color: #fff; cursor: pointer; }
 button:disabled { opacity: .45; cursor: default; }
 .val { font: 12px ui-monospace, monospace; min-width: 52px; text-align: right; }
