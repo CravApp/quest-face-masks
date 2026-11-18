@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SPIKE — cámaras passthrough del Quest Browser</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Ccircle cx=%228%22 cy=%228%22 r=%227%22 fill=%22%237eb6ff%22/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header>
+      <p class="kicker">Spike técnico · no es la app de máscaras</p>
+      <h1>¿El Quest Browser abre las dos cámaras de passthrough?</h1>
+      <p class="lead">Cada botón es una medida. El texto grande es el resultado, para leerlo dentro del visor. Un permiso denegado, una restricción o cero cámaras también cuentan como resultado.</p>
+      <p id="env">Leyendo el navegador…</p>
+    </header>
+    <main>
+      <div id="live" role="status">Pulsa los botones en orden: a, b, c, d y e. El visor tiene que estar despierto y sin el diálogo de Guardian.</div>
+      <section class="steps">
+        <article>
+          <button type="button" id="btn-a">a) Listar cámaras, antes y después del permiso</button>
+          <p id="verdict-a" class="verdict"></p>
+          <pre id="out-a"></pre>
+        </article>
+        <article>
+          <button type="button" id="btn-b">b) Abrir izquierda y derecha a la vez y medir fps</button>
+          <p id="verdict-b" class="verdict"></p>
+          <pre id="out-b"></pre>
+        </article>
+        <article>
+          <button type="button" id="btn-c">c) Sincronía de marcas de tiempo a 60 y a 30 fps</button>
+          <p id="verdict-c" class="verdict"></p>
+          <pre id="out-c"></pre>
+        </article>
+        <article>
+          <button type="button" id="btn-d">d) Intrínsecos y pose de la cámara</button>
+          <p id="verdict-d" class="verdict"></p>
+          <pre id="out-d"></pre>
+        </article>
+        <article>
+          <label class="check"><input id="alternate" type="checkbox" /> Alternar izquierda y derecha en la inferencia</label>
+          <button type="button" id="btn-e">e) Sesión AR + PoseLandmarker</button>
+          <p id="verdict-e" class="verdict"></p>
+          <pre id="out-e"></pre>
+        </article>
+        <article>
+          <button type="button" id="btn-export">Copiar/Exportar resultados</button>
+          <button type="button" id="btn-stop" class="secondary">Detener cámaras</button>
+          <p id="verdict-export" class="verdict"></p>
+        </article>
+      </section>
+      <section class="preview" aria-label="Previsualización">
+        <div class="videos">
+          <video id="video-left" playsinline muted autoplay></video>
+          <video id="video-right" playsinline muted autoplay></video>
+        </div>
+        <canvas id="preview" width="960" height="540"></canvas>
+      </section>
+      <footer>
+        <p>Procedimiento, criterio de pasa/falla y fuentes: <code>docs/spike-webxr-camaras.md</code> en el repositorio. <a href="../../">Volver a la app de máscaras</a>.</p>
+        <details>
+          <summary>Qué dice la documentación, en corto</summary>
+          <p id="blurb"></p>
+        </details>
+      </footer>
+    </main>
+    <canvas id="xr"></canvas>
+    <canvas id="mp" width="2" height="2"></canvas>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
