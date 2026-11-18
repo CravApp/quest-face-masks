@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import { chiiPlugin } from './vite/chii.ts';
 import { lanHttpsPlugin } from './vite/lan-https.ts';
@@ -44,7 +45,16 @@ export default defineConfig(({ mode }) => {
     },
     preview: { host: true, port: 4173 },
     worker: { format: 'es' },
-    build: { target: 'es2022', chunkSizeWarningLimit: 1500 },
+    build: {
+      target: 'es2022',
+      chunkSizeWarningLimit: 1500,
+      rollupOptions: {
+        input: {
+          main: resolve('index.html'),
+          spikeCameras: resolve('spike/cameras/index.html'),
+        },
+      },
+    },
     optimizeDeps: { exclude: ['@mediapipe/tasks-vision'] },
   };
 });
