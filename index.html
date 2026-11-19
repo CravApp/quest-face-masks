@@ -9,7 +9,7 @@
   </head>
   <body>
     <header>
-      <h1>Quest Face Masks <small>v0.2 · mejoras v1.3</small></h1>
+      <h1>Quest Face Masks <small>v0.3 · poses</small></h1>
     </header>
     <div id="banner" hidden role="status"></div>
     <main>
@@ -38,6 +38,25 @@
               <option value="640x480">640×480</option>
             </select>
           </label>
+          <label>Modo
+            <select id="mode">
+              <option value="face">Cara (máscara)</option>
+              <option value="pose">Pose corporal</option>
+              <option value="both">Cara y pose</option>
+            </select>
+          </label>
+          <label>Modelo de pose
+            <select id="poseModel">
+              <option value="lite">Lite</option>
+              <option value="full">Full</option>
+            </select>
+          </label>
+          <label>Personas
+            <select id="numPoses">
+              <option value="1">1</option>
+              <option value="2">2</option>
+            </select>
+          </label>
           <label>Tope de inferencia (Hz)
             <input id="inferCap" type="number" min="5" max="30" step="1" value="20" />
           </label>
@@ -63,7 +82,11 @@
           <legend>Calibración (localStorage)</legend>
           <label><input type="checkbox" id="mirror" /> Espejo (webcam frontal)</label>
           <div id="sliders"></div>
-          <button id="btnResetCalib">Restablecer</button>
+          <button id="btnResetCalib">Restablecer sliders</button>
+          <label>Calibración estéreo (JSON)
+            <input id="calibFile" type="file" accept="application/json,.json" />
+          </label>
+          <button id="btnClearCalib" type="button">Olvidar calibración</button>
         </fieldset>
         <pre id="log"></pre>
       </aside>

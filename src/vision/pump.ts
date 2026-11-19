@@ -22,6 +22,7 @@ export function startInferencePump(opts: PumpOptions): () => void {
   let lastStart = 0;
   let lastSentCap = opts.capHz();
   let lastRightCapture: number | null = null;
+  let lastCapture: number | null = null;
   const track = opts.video.srcObject instanceof MediaStream ? opts.video.srcObject.getVideoTracks()[0] : null;
   let useBitmap = !(track && isWorkerDetector(opts.detector) && opts.detector.attachTrack(track, opts.capHz()));
   if (!useBitmap) opts.log('Inferencia por MediaStreamTrackProcessor en el worker.');
@@ -39,6 +40,7 @@ export function startInferencePump(opts: PumpOptions): () => void {
 
   function deliver(result: ResultMsg): void {
     if (stopped || result.eye !== 'left') return;
+    if (result.captureTime == null) result.captureTime = lastCapture;
     if (result.droppedBefore) opts.onDrop(result.droppedBefore);
     opts.onResult(result);
     maybeRight(result);
@@ -70,6 +72,7 @@ export function startInferencePump(opts: PumpOptions): () => void {
 
   const stopLeft = watch(opts.video, (capture) => {
     opts.onCameraFrame();
+    if (capture != null) lastCapture = capture;
     if (isWorkerDetector(opts.detector)) {
       const cap = opts.capHz();
       if (cap !== lastSentCap) {
