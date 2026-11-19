@@ -21,7 +21,7 @@ export interface CameraResult {
   devices: VideoInputSummary[];
   /** Ojo elegido. En Quest, auto es la passthrough izquierda. */
   eye: QuestEye | 'webcam';
-  /** La otra passthrough, solo si se pidió estéreo y abrió. */
+  /** La otra passthrough. La fase 2 la usará junto con StereoCalibration (src/calib/stereo.ts). */
   rightStream: MediaStream | null;
   rightLabel: string | null;
   rightSettings: MediaTrackSettings | null;

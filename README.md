@@ -1,6 +1,6 @@
-# Quest Face Masks — v0.2
+# Quest Face Masks — v0.3
 
-Prototipo web (Vite + TypeScript + three.js + `@mediapipe/tasks-vision`) que detecta un rostro con **MediaPipe Face Landmarker** y le coloca una **máscara 3D**. En Quest Browser usa la cámara passthrough **izquierda** (`camera 1, facing back`) a 1280×960@30. En escritorio usa la webcam. Lo que cambió tras el spike de cámaras está en [`docs/mejoras-v1.3.md`](docs/mejoras-v1.3.md). Requisitos de partida: [`docs/SRS-v1.2.md`](docs/SRS-v1.2.md).
+Prototipo web (Vite + TypeScript + three.js + `@mediapipe/tasks-vision`) que detecta un rostro y, desde esta versión, **poses corporales** con MediaPipe. En Quest Browser usa la cámara passthrough **izquierda** a 1280×960@30. En escritorio usa la webcam. Poses: [`docs/poses-v1.md`](docs/poses-v1.md). Alineación tras el spike: [`docs/mejoras-v1.3.md`](docs/mejoras-v1.3.md). Requisitos de partida: [`docs/SRS-v1.2.md`](docs/SRS-v1.2.md).
 
 ## Funciones
 
@@ -22,7 +22,8 @@ Prototipo web (Vite + TypeScript + three.js + `@mediapipe/tasks-vision`) que det
 - **Entrar en AR** (`immersive-ar`, con `local-floor` y `hand-tracking` opcionales):
   - el HUD 3D muestra fps de XR, fps de cámara, Hz y ms de inferencia (media y p95), latencia `now − captureTime` y descartes.
 - **Calibración** guardada en `localStorage`: FOV (escritorio), offsets XYZ, pitch/yaw, escala de profundidad (mono), escala de máscara, suavizado y espejo.
-- **Parámetros de URL**: `res=640x480`, `infer=20`, `gpu=0`, `worker=0`, `stereo=1`, `overlay=1`, `cam=left|right|webcam`, y `?log=` / `?glb=` como antes.
+- **Pose Landmarker** (`?mode=pose` o `both`, modelo `?pose=lite|full`, `?poses=1|2`): esqueleto 2D en escritorio y esqueleto 3D en `immersive-ar`, con la misma cámara y el mismo tope de Hz. Cara y pose van en workers distintos. Ver [`docs/poses-v1.md`](docs/poses-v1.md).
+- **Calibración estéreo** (`?calib=` o un JSON local): se guarda y, si es válida, sustituye la K de fábrica. La distorsión no se aplica todavía.
 
 ## Instalación y uso en escritorio
 

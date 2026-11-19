@@ -10,6 +10,10 @@ const models = [
     url: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
     dst: 'public/models/pose_landmarker_lite.task',
   },
+  {
+    url: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
+    dst: 'public/models/pose_landmarker_full.task',
+  },
 ];
 
 mkdirSync('public/models', { recursive: true });
